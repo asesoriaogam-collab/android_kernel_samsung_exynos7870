@@ -7,15 +7,15 @@ on:
 
 jobs:
   build-kernel:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - name: 1. Instalar herramientas de compilación
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32z1-dev liblz4-tool libncurses5-dev libssl-dev libxml2-utils lzop rsync squashfs-tools xsltproc zip zlib1g-dev python2
+          sudo apt-get install -y bc bison build-essential curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32z1-dev liblz4-tool libncurses5-dev libssl-dev libxml2-utils lzop rsync squashfs-tools xsltproc zip zlib1g-dev python-is-python3 python2-minimal
 
       - name: 2. Checkout del código fuente
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: 3. Descargar Toolchain GCC 4.9 ARM64
         run: |
