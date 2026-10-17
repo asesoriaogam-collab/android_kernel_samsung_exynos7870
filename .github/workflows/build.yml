@@ -27,7 +27,7 @@ jobs:
           sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.l || true
           sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped || true
 
-          # 2. Configurar defconfig para compilar los Realtek externos como modulos (.ko) y evitar choque de simbolos
+          # 2. Configurar defconfig para compilar los Realtek externos como modulos (.ko)
           sed -i 's/CONFIG_R8188EU=y/# CONFIG_R8188EU is not set/g' arch/arm64/configs/exynos7870-j7velte_defconfig || true
           sed -i 's/CONFIG_RTL8188EU=y/CONFIG_RTL8188EU=m/g' arch/arm64/configs/exynos7870-j7velte_defconfig || true
           sed -i 's/CONFIG_88XXAU=y/CONFIG_88XXAU=m/g' arch/arm64/configs/exynos7870-j7velte_defconfig || true
@@ -40,22 +40,28 @@ jobs:
           git clone --depth=1 -b v5.3.9 https://github.com/aircrack-ng/rtl8188eus.git drivers/net/wireless/rtl8188eus
           git clone --depth=1 -b v5.6.4.2 https://github.com/aircrack-ng/rtl8812au.git drivers/net/wireless/rtl8812au
 
-          # 4. Parchear compatibilidad exacta con el cfg80211 hibrido de Exynos 7870 (Linux 3.18)
+          # 4. Parchear compatibilidad exacta con el cfg80211 de Exynos 7870 (Linux 3.18)
           for drv in rtl8188eus rtl8812au; do
             sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' drivers/net/wireless/$drv/Makefile
             sed -i 's/CONFIG_RTW_ANDROID = .*/CONFIG_RTW_ANDROID = 0/g' drivers/net/wireless/$drv/Makefile
             sed -i '1i EXTRA_CFLAGS += -DCONFIG_LITTLE_ENDIAN -DCONFIG_IOCTL_CFG80211 -DRTW_USE_CFG80211_STA_EVENT -DIEEE80211_BSS_TYPE_ANY=0 -DIEEE80211_PRIVACY_ANY=0 -DNL80211_TIMEOUT_UNSPECIFIED=0 -Wno-error -Wno-incompatible-pointer-types' drivers/net/wireless/$drv/Makefile
 
-            # Ajustar rtw_cfg80211_disconnected a 5 argumentos (firma exacta de include/net/cfg80211.h en 3.18)
+            # Ajustar rtw_cfg80211_disconnected a 5 argumentos (firma de 3.18)
             sed -i 's/cfg80211_disconnected(wdev_to_ndev(wdev), reason, ie, ie_len, locally_generated, gfp)/cfg80211_disconnected(wdev_to_ndev(wdev), reason, ie, ie_len, gfp)/g' drivers/net/wireless/$drv/os_dep/linux/ioctl_cfg80211.h || true
             sed -i 's/cfg80211_disconnected(wdev_to_ndev(wdev), reason, ie, ie_len, ie_len, gfp)/cfg80211_disconnected(wdev_to_ndev(wdev), reason, ie, ie_len, gfp)/g' drivers/net/wireless/$drv/os_dep/linux/ioctl_cfg80211.h || true
 
-            # Si cfg80211_roamed pide menos argumentos en 3.18, forzar bloque < 4.12 en ioctl_cfg80211.c
+            # Ajustar cfg80211_vendor_event_alloc a 4 argumentos en rtw_cfgvendor.c (firma de 3.18)
+            sed -i 's/cfg80211_vendor_event_alloc(wiphy, NULL, len, event_id, gfp)/cfg80211_vendor_event_alloc(wiphy, len, event_id, gfp)/g' drivers/net/wireless/$drv/os_dep/linux/rtw_cfgvendor.c || true
+            sed -i 's/cfg80211_vendor_event_alloc(wiphy, wdev, len, event_id, gfp)/cfg80211_vendor_event_alloc(wiphy, len, event_id, gfp)/g' drivers/net/wireless/$drv/os_dep/linux/rtw_cfgvendor.c || true
+
+            # Forzar condicionales de version a 3.18 en ioctl_cfg80211 y rtw_cfgvendor
             sed -i 's/(LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0) || defined(RHEL79))/0/g' drivers/net/wireless/$drv/os_dep/linux/ioctl_cfg80211.c || true
             sed -i 's/LINUX_VERSION_CODE >= KERNEL_VERSION(4, 2, 0)/0/g' drivers/net/wireless/$drv/os_dep/linux/ioctl_cfg80211.h || true
             sed -i 's/CFG80211_VERSION_CODE >= KERNEL_VERSION(4, 2, 0)/0/g' drivers/net/wireless/$drv/os_dep/linux/ioctl_cfg80211.h || true
             sed -i 's/CFG80211_VERSION_CODE >= KERNEL_VERSION(4, 7, 0)/0/g' drivers/net/wireless/$drv/os_dep/linux/ioctl_cfg80211.c || true
             sed -i 's/CFG80211_VERSION_CODE >= KERNEL_VERSION(4, 1, 0)/0/g' drivers/net/wireless/$drv/os_dep/linux/ioctl_cfg80211.c || true
+            sed -i 's/LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)/0/g' drivers/net/wireless/$drv/os_dep/linux/rtw_cfgvendor.c || true
+            sed -i 's/CFG80211_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)/0/g' drivers/net/wireless/$drv/os_dep/linux/rtw_cfgvendor.c || true
           done
 
           echo 'obj-$(CONFIG_RTL8188EU) += rtl8188eus/' >> drivers/net/wireless/Makefile
