@@ -44,11 +44,7 @@ jobs:
           for drv in rtl8188eus rtl8812au; do
             sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' drivers/net/wireless/$drv/Makefile
             sed -i 's/CONFIG_RTW_ANDROID = .*/CONFIG_RTW_ANDROID = 0/g' drivers/net/wireless/$drv/Makefile
-            sed -i '1i EXTRA_CFLAGS += -DCONFIG_LITTLE_ENDIAN -DCONFIG_IOCTL_CFG80211 -DRTW_USE_CFG80211_STA_EVENT -Wno-error -Wno-incompatible-pointer-types' drivers/net/wireless/$drv/Makefile
-
-            # Forzar que CFG80211_VERSION_CODE sea exactamente LINUX_VERSION_CODE (3.18.140) para que no llame a cfg80211_connect_bss
-            sed -i '1i #undef CFG80211_VERSION_CODE\n#define CFG80211_VERSION_CODE LINUX_VERSION_CODE' drivers/net/wireless/$drv/os_dep/linux/ioctl_cfg80211.h || true
-            sed -i 's/#define CFG80211_VERSION_CODE .*/#define CFG80211_VERSION_CODE LINUX_VERSION_CODE/g' drivers/net/wireless/$drv/os_dep/linux/ioctl_cfg80211.h || true
+            sed -i '1i EXTRA_CFLAGS += -DCONFIG_LITTLE_ENDIAN -DCONFIG_IOCTL_CFG80211 -DRTW_USE_CFG80211_STA_EVENT -DIEEE80211_BSS_TYPE_ANY=0 -DIEEE80211_PRIVACY_ANY=0 -DNL80211_TIMEOUT_UNSPECIFIED=0 -Wno-error -Wno-incompatible-pointer-types' drivers/net/wireless/$drv/Makefile
 
             # Ajustar rtw_cfg80211_disconnected a 5 argumentos (firma de 3.18)
             sed -i 's/cfg80211_disconnected(wdev_to_ndev(wdev), reason, ie, ie_len, locally_generated, gfp)/cfg80211_disconnected(wdev_to_ndev(wdev), reason, ie, ie_len, gfp)/g' drivers/net/wireless/$drv/os_dep/linux/ioctl_cfg80211.h || true
@@ -57,6 +53,16 @@ jobs:
             # Ajustar cfg80211_vendor_event_alloc a 4 argumentos en rtw_cfgvendor.c (firma de 3.18)
             sed -i 's/cfg80211_vendor_event_alloc(wiphy, NULL, len, event_id, gfp)/cfg80211_vendor_event_alloc(wiphy, len, event_id, gfp)/g' drivers/net/wireless/$drv/os_dep/linux/rtw_cfgvendor.c || true
             sed -i 's/cfg80211_vendor_event_alloc(wiphy, wdev, len, event_id, gfp)/cfg80211_vendor_event_alloc(wiphy, len, event_id, gfp)/g' drivers/net/wireless/$drv/os_dep/linux/rtw_cfgvendor.c || true
+
+            # Neutralizar todas las condiciones >= 4.x en ioctl_cfg80211.c para que use cfg80211_connect_result en vez de cfg80211_connect_bss
+            python3 -c "
+          p = 'drivers/net/wireless/$drv/os_dep/linux/ioctl_cfg80211.c'
+          txt = open(p).read()
+          txt = txt.replace('defined(RHEL79)', '0')
+          import re
+          txt = re.sub(r'(LINUX_VERSION_CODE|CFG80211_VERSION_CODE)\s*>=\s*KERNEL_VERSION\(\s*4\s*,\s*\d+\s*,\s*\d+\s*\)', '0', txt)
+          open(p, 'w').write(txt)
+          "
           done
 
           echo 'obj-$(CONFIG_RTL8188EU) += rtl8188eus/' >> drivers/net/wireless/Makefile
