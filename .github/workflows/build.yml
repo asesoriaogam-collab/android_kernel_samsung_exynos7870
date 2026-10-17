@@ -23,32 +23,38 @@ jobs:
 
       - name: 4. Integrar Drivers TP-Link (WN722N y Archer T2U)
         run: |
-          # Fix para el error multiple definition of yylloc en scripts/dtc
+          # Fix para yylloc en scripts/dtc
           sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.l || true
           sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped || true
 
-          # Quitar driver r8188eu viejo de staging
+          # Quitar driver r8188eu viejo de staging y pasar los nuevos a modulos (=m) para que no choquen simbolos rtw_*
           sed -i 's/CONFIG_R8188EU=y/# CONFIG_R8188EU is not set/g' arch/arm64/configs/exynos7870-j7velte_defconfig || true
+          sed -i 's/CONFIG_RTL8188EU=y/CONFIG_RTL8188EU=m/g' arch/arm64/configs/exynos7870-j7velte_defconfig || true
+          sed -i 's/CONFIG_88XXAU=y/CONFIG_88XXAU=m/g' arch/arm64/configs/exynos7870-j7velte_defconfig || true
+          echo "CONFIG_WIRELESS_EXT=y" >> arch/arm64/configs/exynos7870-j7velte_defconfig
+          echo "CONFIG_WEXT_PRIV=y" >> arch/arm64/configs/exynos7870-j7velte_defconfig
           sed -i '/r8188eu/d' drivers/staging/Makefile || true
           sed -i '/r8188eu/d' drivers/staging/Kconfig || true
 
-          # 1) Driver RTL8188EUS (TL-WN722N v2/v3) con Little Endian explicito para ARM64
+          # 1) Driver RTL8188EUS (TL-WN722N v2/v3) usando WEXT puro (evita error ioctl_cfg80211 en 3.18)
           git clone --depth=1 -b v5.3.9 https://github.com/aircrack-ng/rtl8188eus.git drivers/net/wireless/rtl8188eus
           sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' drivers/net/wireless/rtl8188eus/Makefile
+          sed -i 's/CONFIG_IOCTL_CFG80211 = y/CONFIG_IOCTL_CFG80211 = n/g' drivers/net/wireless/rtl8188eus/Makefile
           sed -i 's/CONFIG_RTW_ANDROID = .*/CONFIG_RTW_ANDROID = 0/g' drivers/net/wireless/rtl8188eus/Makefile
-          sed -i '1i EXTRA_CFLAGS += -DCONFIG_LITTLE_ENDIAN -DCONFIG_IOCTL_CFG80211 -DRTW_USE_CFG80211_STA_EVENT -Wno-error' drivers/net/wireless/rtl8188eus/Makefile
+          sed -i '1i EXTRA_CFLAGS += -DCONFIG_LITTLE_ENDIAN -Wno-error -Wno-incompatible-pointer-types' drivers/net/wireless/rtl8188eus/Makefile
           echo 'obj-$(CONFIG_RTL8188EU) += rtl8188eus/' >> drivers/net/wireless/Makefile
           sed -i '$i source "drivers/net/wireless/rtl8188eus/Kconfig"' drivers/net/wireless/Kconfig
 
-          # 2) Driver RTL8812AU / RTL8821AU (Archer T2U) con Little Endian explicito para ARM64
+          # 2) Driver RTL8812AU / RTL8821AU (Archer T2U) usando WEXT puro
           git clone --depth=1 -b v5.6.4.2 https://github.com/aircrack-ng/rtl8812au.git drivers/net/wireless/rtl8812au
           sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' drivers/net/wireless/rtl8812au/Makefile
+          sed -i 's/CONFIG_IOCTL_CFG80211 = y/CONFIG_IOCTL_CFG80211 = n/g' drivers/net/wireless/rtl8812au/Makefile
           sed -i 's/CONFIG_RTW_ANDROID = .*/CONFIG_RTW_ANDROID = 0/g' drivers/net/wireless/rtl8812au/Makefile
-          sed -i '1i EXTRA_CFLAGS += -DCONFIG_LITTLE_ENDIAN -DCONFIG_IOCTL_CFG80211 -DRTW_USE_CFG80211_STA_EVENT -Wno-error' drivers/net/wireless/rtl8812au/Makefile
+          sed -i '1i EXTRA_CFLAGS += -DCONFIG_LITTLE_ENDIAN -Wno-error -Wno-incompatible-pointer-types' drivers/net/wireless/rtl8812au/Makefile
           echo 'obj-$(CONFIG_88XXAU) += rtl8812au/' >> drivers/net/wireless/Makefile
           sed -i '$i source "drivers/net/wireless/rtl8812au/Kconfig"' drivers/net/wireless/Kconfig
 
-      - name: 5. Compilar Kernel
+      - name: 5. Compilar Kernel y Modulos
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
@@ -57,16 +63,20 @@ jobs:
           export ANDROID_MAJOR_VERSION=q
           make HOSTCFLAGS="-fcommon" exynos7870-j7velte_defconfig
           make HOSTCFLAGS="-fcommon" -j$(nproc --all)
+          make HOSTCFLAGS="-fcommon" modules -j$(nproc --all) || true
 
-      - name: 6. Empaquetar con AnyKernel3
+      - name: 6. Empaquetar con AnyKernel3 (Kernel + Modulos .ko)
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           cp arch/arm64/boot/Image AnyKernel3/
+          mkdir -p AnyKernel3/modules/system/lib/modules
+          find drivers/net/wireless/ -name "*.ko" -exec cp {} AnyKernel3/modules/system/lib/modules/ \; || true
+
           cat << 'AK3' > AnyKernel3/anykernel.sh
           properties() { '
           kernel.string=NetHunter-J7Neo-LOS17.1-TPLink
           do.devicecheck=1
-          do.modules=0
+          do.modules=1
           do.systemless=1
           do.cleanup=1
           do.cleanuponabort=0
