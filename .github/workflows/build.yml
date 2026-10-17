@@ -9,7 +9,7 @@ jobs:
   build-kernel:
     runs-on: ubuntu-22.04
     steps:
-      - name: 1. Instalar dependencias (incluyendo ccache)
+      - name: 1. Instalar dependencias
         run: |
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32z1-dev liblz4-tool libncurses5-dev libssl-dev libxml2-utils lzop python-is-python3 python2-minimal rsync squashfs-tools xsltproc zip zlib1g-dev
@@ -23,6 +23,10 @@ jobs:
 
       - name: 4. Integrar Drivers TP-Link (WN722N y Archer T2U)
         run: |
+          # Fix para el error multiple definition of yylloc en scripts/dtc con GCC moderno
+          sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.l || true
+          sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped || true
+
           sed -i 's/CONFIG_R8188EU=y/# CONFIG_R8188EU is not set/g' arch/arm64/configs/exynos7870-j7velte_defconfig || true
           sed -i '/r8188eu/d' drivers/staging/Makefile || true
           sed -i '/r8188eu/d' drivers/staging/Kconfig || true
@@ -46,8 +50,8 @@ jobs:
           export PATH="${GITHUB_WORKSPACE}/gcc64/bin:$PATH"
           export CROSS_COMPILE=aarch64-linux-android-
           export ANDROID_MAJOR_VERSION=q
-          make exynos7870-j7velte_defconfig
-          make -j$(nproc --all)
+          make HOSTCFLAGS="-fcommon" exynos7870-j7velte_defconfig
+          make HOSTCFLAGS="-fcommon" -j$(nproc --all)
 
       - name: 6. Empaquetar con AnyKernel3
         run: |
