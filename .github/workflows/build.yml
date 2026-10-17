@@ -40,7 +40,7 @@ jobs:
           git clone --depth=1 -b v5.3.9 https://github.com/aircrack-ng/rtl8188eus.git drivers/net/wireless/rtl8188eus
           git clone --depth=1 -b v5.6.4.2 https://github.com/aircrack-ng/rtl8812au.git drivers/net/wireless/rtl8812au
 
-          # 4. Reemplazar directamente cfg80211_connect_bss por un wrapper inline a cfg80211_connect_result en ambos drivers
+          # 4. Parchear ambos drivers de forma segura
           for drv in rtl8188eus rtl8812au; do
             sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' drivers/net/wireless/$drv/Makefile
             sed -i 's/CONFIG_RTW_ANDROID = .*/CONFIG_RTW_ANDROID = 0/g' drivers/net/wireless/$drv/Makefile
@@ -54,8 +54,8 @@ jobs:
             sed -i 's/cfg80211_vendor_event_alloc(wiphy, NULL, len, event_id, gfp)/cfg80211_vendor_event_alloc(wiphy, len, event_id, gfp)/g' drivers/net/wireless/$drv/os_dep/linux/rtw_cfgvendor.c || true
             sed -i 's/cfg80211_vendor_event_alloc(wiphy, wdev, len, event_id, gfp)/cfg80211_vendor_event_alloc(wiphy, len, event_id, gfp)/g' drivers/net/wireless/$drv/os_dep/linux/rtw_cfgvendor.c || true
 
-            # Redefinir cfg80211_connect_bss como macro hacia cfg80211_connect_result para eliminar el error de MODPOST
-            sed -i '1i #define cfg80211_connect_bss(dev, bssid, bss, req_ie, req_ie_len, resp_ie, resp_ie_len, status, gfp, ...) cfg80211_connect_result(dev, bssid, req_ie, req_ie_len, resp_ie, resp_ie_len, status, gfp)' drivers/net/wireless/$drv/os_dep/linux/ioctl_cfg80211.c
+            # Insertar el macro JUSTO ANTES de la llamada (despues de los #include) con 8 args fijos + variadico (soporta 9 y 10 args)
+            sed -i '/cfg80211_connect_bss(/i #undef cfg80211_connect_bss\n#define cfg80211_connect_bss(dev, bssid, bss, req_ie, req_ie_len, resp_ie, resp_ie_len, status, ...) cfg80211_connect_result(dev, bssid, req_ie, req_ie_len, resp_ie, resp_ie_len, status, GFP_ATOMIC)' drivers/net/wireless/$drv/os_dep/linux/ioctl_cfg80211.c
           done
 
           echo 'obj-$(CONFIG_RTL8188EU) += rtl8188eus/' >> drivers/net/wireless/Makefile
@@ -74,26 +74,26 @@ jobs:
           make HOSTCFLAGS="-fcommon" -j$(nproc --all)
           make HOSTCFLAGS="-fcommon" modules -j$(nproc --all)
 
-      - name: 6. Empaquetar con AnyKernel3 (Kernel + Modulos .ko)
+      - name: 6. Empaquetar con AnyKernel3 (Kernel + Modulos .ko optimizados)
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           cp arch/arm64/boot/Image AnyKernel3/
           mkdir -p AnyKernel3/modules/system/lib/modules
           find drivers/net/wireless/ -name "*.ko" -exec cp -v {} AnyKernel3/modules/system/lib/modules/ \;
+          ${GITHUB_WORKSPACE}/gcc64/bin/aarch64-linux-android-strip --strip-debug AnyKernel3/modules/system/lib/modules/*.ko
+          ls -lh AnyKernel3/modules/system/lib/modules/
 
           cat << 'AK3' > AnyKernel3/anykernel.sh
+          # AnyKernel3 Ramdisk Mod Script
           properties() { '
           kernel.string=NetHunter-J7Neo-LOS17.1-TPLink
-          do.devicecheck=1
+          do.devicecheck=0
           do.modules=1
           do.systemless=1
           do.cleanup=1
           do.cleanuponabort=0
           device.name1=j7velte
-          device.name2=j7veltedx
-          device.name3=SM-J701M
-          device.name4=SM-J701F
-          device.name5=j7nxtlte
+          device.name2=SM-J701M
           '; }
           block=/dev/block/platform/13540000.dwmmc0/by-name/BOOT;
           is_slot_device=0;
