@@ -21,7 +21,7 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git ${GITHUB_WORKSPACE}/gcc64
 
-      - name: 4. Integrar Drivers TP-Link y Parchear API cfg80211 (3.18)
+      - name: 4. Integrar Drivers TP-Link y Resolver Simbolo cfg80211_connect_bss
         run: |
           # 1. Fix para yylloc en scripts/dtc
           sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.l || true
@@ -40,7 +40,7 @@ jobs:
           git clone --depth=1 -b v5.3.9 https://github.com/aircrack-ng/rtl8188eus.git drivers/net/wireless/rtl8188eus
           git clone --depth=1 -b v5.6.4.2 https://github.com/aircrack-ng/rtl8812au.git drivers/net/wireless/rtl8812au
 
-          # 4. Parchear compatibilidad exacta con el cfg80211 de Exynos 7870 (Linux 3.18)
+          # 4. Reemplazar directamente cfg80211_connect_bss por un wrapper inline a cfg80211_connect_result en ambos drivers
           for drv in rtl8188eus rtl8812au; do
             sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' drivers/net/wireless/$drv/Makefile
             sed -i 's/CONFIG_RTW_ANDROID = .*/CONFIG_RTW_ANDROID = 0/g' drivers/net/wireless/$drv/Makefile
@@ -54,15 +54,8 @@ jobs:
             sed -i 's/cfg80211_vendor_event_alloc(wiphy, NULL, len, event_id, gfp)/cfg80211_vendor_event_alloc(wiphy, len, event_id, gfp)/g' drivers/net/wireless/$drv/os_dep/linux/rtw_cfgvendor.c || true
             sed -i 's/cfg80211_vendor_event_alloc(wiphy, wdev, len, event_id, gfp)/cfg80211_vendor_event_alloc(wiphy, len, event_id, gfp)/g' drivers/net/wireless/$drv/os_dep/linux/rtw_cfgvendor.c || true
 
-            # Neutralizar todas las condiciones >= 4.x en ioctl_cfg80211.c para que use cfg80211_connect_result en vez de cfg80211_connect_bss
-            python3 -c "
-          p = 'drivers/net/wireless/$drv/os_dep/linux/ioctl_cfg80211.c'
-          txt = open(p).read()
-          txt = txt.replace('defined(RHEL79)', '0')
-          import re
-          txt = re.sub(r'(LINUX_VERSION_CODE|CFG80211_VERSION_CODE)\s*>=\s*KERNEL_VERSION\(\s*4\s*,\s*\d+\s*,\s*\d+\s*\)', '0', txt)
-          open(p, 'w').write(txt)
-          "
+            # Redefinir cfg80211_connect_bss como macro hacia cfg80211_connect_result para eliminar el error de MODPOST
+            sed -i '1i #define cfg80211_connect_bss(dev, bssid, bss, req_ie, req_ie_len, resp_ie, resp_ie_len, status, gfp, ...) cfg80211_connect_result(dev, bssid, req_ie, req_ie_len, resp_ie, resp_ie_len, status, gfp)' drivers/net/wireless/$drv/os_dep/linux/ioctl_cfg80211.c
           done
 
           echo 'obj-$(CONFIG_RTL8188EU) += rtl8188eus/' >> drivers/net/wireless/Makefile
