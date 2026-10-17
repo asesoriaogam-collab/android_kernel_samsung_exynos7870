@@ -1,0 +1,88 @@
+name: Build NetHunter Kernel J701M
+
+on:
+  push:
+    branches: [ "nethunter-j7neo" ]
+  workflow_dispatch:
+
+jobs:
+  build-kernel:
+    runs-on: ubuntu-20.04
+    steps:
+      - name: 1. Instalar herramientas de compilación
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32z1-dev liblz4-tool libncurses5-dev libssl-dev libxml2-utils lzop rsync squashfs-tools xsltproc zip zlib1g-dev python2
+
+      - name: 2. Checkout del código fuente
+        uses: actions/checkout@v3
+
+      - name: 3. Descargar Toolchain GCC 4.9 ARM64
+        run: |
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git ${GITHUB_WORKSPACE}/gcc64
+
+      - name: 4. Integrar Drivers Aircrack-ng (TL-WN722N v2/v3 y Archer T2U)
+        run: |
+          sed -i 's/CONFIG_R8188EU=y/# CONFIG_R8188EU is not set/g' arch/arm64/configs/exynos7870-j7velte_defconfig || true
+          sed -i '/r8188eu/d' drivers/staging/Makefile || true
+          sed -i '/r8188eu/d' drivers/staging/Kconfig || true
+
+          git clone --depth=1 -b v5.3.9 https://github.com/aircrack-ng/rtl8188eus.git drivers/net/wireless/rtl8188eus
+          sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' drivers/net/wireless/rtl8188eus/Makefile
+          sed -i 's/CONFIG_PLATFORM_ANDROID_ARM64 = n/CONFIG_PLATFORM_ANDROID_ARM64 = y/g' drivers/net/wireless/rtl8188eus/Makefile
+          echo 'obj-$(CONFIG_RTL8188EU) += rtl8188eus/' >> drivers/net/wireless/Makefile
+          sed -i '$i source "drivers/net/wireless/rtl8188eus/Kconfig"' drivers/net/wireless/Kconfig
+
+          git clone --depth=1 -b v5.6.4.2 https://github.com/aircrack-ng/rtl8812au.git drivers/net/wireless/rtl8812au
+          sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' drivers/net/wireless/rtl8812au/Makefile
+          sed -i 's/CONFIG_PLATFORM_ARM64_RPI = n/CONFIG_PLATFORM_ARM64_RPI = y/g' drivers/net/wireless/rtl8812au/Makefile
+          echo 'obj-$(CONFIG_88XXAU) += rtl8812au/' >> drivers/net/wireless/Makefile
+          sed -i '$i source "drivers/net/wireless/rtl8812au/Kconfig"' drivers/net/wireless/Kconfig
+
+      - name: 5. Compilar Kernel (exynos7870-j7velte_defconfig)
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export PATH="${GITHUB_WORKSPACE}/gcc64/bin:$PATH"
+          export CROSS_COMPILE=aarch64-linux-android-
+
+          mkdir -p out
+          make O=out exynos7870-j7velte_defconfig
+          make O=out -j$(nproc --all)
+
+      - name: 6. Empaquetar ZIP para OrangeFox con AnyKernel3
+        run: |
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          cp out/arch/arm64/boot/Image AnyKernel3/
+
+          cat << 'AK3' > AnyKernel3/anykernel.sh
+          properties() { '
+          kernel.string=NetHunter-J7Neo-LOS17.1-TPLink
+          do.devicecheck=1
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=j7velte
+          device.name2=j7veltedx
+          device.name3=SM-J701M
+          device.name4=SM-J701F
+          device.name5=j7nxtlte
+          '; }
+          block=/dev/block/platform/13540000.dwmmc0/by-name/BOOT;
+          is_slot_device=0;
+          ramdisk_compression=auto;
+          . tools/ak3-core.sh;
+          dump_boot;
+          write_boot;
+          AK3
+
+          cd AnyKernel3
+          rm -rf .git README.md
+          zip -r9 ../NetHunter-J701M-LOS17.1-TPLink.zip *
+
+      - name: 7. Subir Instalador ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: NetHunter-J701M-LOS17.1-TPLink
+          path: NetHunter-J701M-LOS17.1-TPLink.zip
